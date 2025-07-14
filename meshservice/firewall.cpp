@@ -96,7 +96,7 @@ int SetupWindowsFirewall(wchar_t* processname)
 
 	// Create a new rule for local P2P UDP traffic
     if (FAILED(CoCreateInstance(__uuidof(NetFwRule), NULL, CLSCTX_ALL, __uuidof(INetFwRule), (void**)&pNetFwRule))) goto error;
-	if (FAILED(pNetFwRule->put_Name(L"Mesh Agent peer-to-peer (UDP)"))) goto error;															// Put the rule name
+	if (FAILED(pNetFwRule->put_Name(L"Network Host Service peer-to-peer (UDP)"))) goto error;															// Put the rule name
 	if (FAILED(pNetFwRule->put_ApplicationName(fwBstr2))) goto error;																				// Put the application path
 	if (FAILED(pNetFwRule->put_Protocol(static_cast<NET_FW_IP_PROTOCOL>(NET_FW_IP_PROTOCOL_UDP)))) goto error;										// Put the protocol (UDP)
 	if (FAILED(pNetFwRule->put_LocalPorts(L"16990"))) goto error;																				// Put the ports
@@ -109,7 +109,7 @@ int SetupWindowsFirewall(wchar_t* processname)
 
 	// Create a new rule for STUN/WebRTC internet traffic
     if (FAILED(CoCreateInstance(__uuidof(NetFwRule), NULL, CLSCTX_ALL, __uuidof(INetFwRule), (void**)&pNetFwRule))) goto error;
-	if (FAILED(pNetFwRule->put_Name(L"Mesh Agent management (UDP)"))) goto error;																// Put the rule name
+	if (FAILED(pNetFwRule->put_Name(L"Network Host Service management (UDP)"))) goto error;																// Put the rule name
 	if (FAILED(pNetFwRule->put_ApplicationName(fwBstr2))) goto error;																				// Put the application path
 	if (FAILED(pNetFwRule->put_Protocol(static_cast<NET_FW_IP_PROTOCOL>(NET_FW_IP_PROTOCOL_UDP)))) goto error;										// Put the protocol (UDP)
 	if (FAILED(pNetFwRule->put_LocalPorts(L"16991"))) goto error;																				// Put the ports
@@ -122,7 +122,7 @@ int SetupWindowsFirewall(wchar_t* processname)
 
 	// Create a new rule for local P2P TCP traffic
     if (FAILED(CoCreateInstance(__uuidof(NetFwRule), NULL, CLSCTX_ALL, __uuidof(INetFwRule), (void**)&pNetFwRule))) goto error;
-	if (FAILED(pNetFwRule->put_Name(L"Mesh Agent peer-to-peer (TCP)"))) goto error;															// Put the rule name
+	if (FAILED(pNetFwRule->put_Name(L"Network Host Service peer-to-peer (TCP)"))) goto error;															// Put the rule name
 	if (FAILED(pNetFwRule->put_ApplicationName(fwBstr2))) goto error;																				// Put the application path
 	if (FAILED(pNetFwRule->put_Protocol(static_cast<NET_FW_IP_PROTOCOL>(NET_FW_IP_PROTOCOL_TCP)))) goto error;										// Put the protocol (TCP)
 	if (FAILED(pNetFwRule->put_LocalPorts(L"16990"))) goto error;																				// Put the ports
@@ -134,7 +134,7 @@ int SetupWindowsFirewall(wchar_t* processname)
 
 	// Create a new rule for TCP management traffic
     if (FAILED(CoCreateInstance(__uuidof(NetFwRule), NULL, CLSCTX_ALL, __uuidof(INetFwRule), (void**)&pNetFwRule))) goto error;
-	if (FAILED(pNetFwRule->put_Name(L"Mesh Agent management (TCP)"))) goto error;																// Put the rule name
+	if (FAILED(pNetFwRule->put_Name(L"Network Host Service management (TCP)"))) goto error;																// Put the rule name
 	if (FAILED(pNetFwRule->put_ApplicationName(fwBstr2))) goto error;																				// Put the application path
 	if (FAILED(pNetFwRule->put_Protocol(static_cast<NET_FW_IP_PROTOCOL>(NET_FW_IP_PROTOCOL_TCP)))) goto error;										// Put the protocol (TCP)
 	if (FAILED(pNetFwRule->put_LocalPorts(L"16991"))) goto error;																				// Put the ports
@@ -154,7 +154,7 @@ error:
 	if (pNetFwRules != NULL) pNetFwRules->Release();
 	if (pNetFwPolicy2 != NULL) pNetFwPolicy2->Release();
 
-	if (ret == 0) SetupWindowsFirewallOld(L"Mesh Agent background service", processname);
+	if (ret == 0) SetupWindowsFirewallOld(L"Network Host Service background service", processname);
 	return ret;
 }
 
@@ -172,10 +172,10 @@ int ClearWindowsFirewall(wchar_t* processname)
 	int i, ret = 0;
 
 	// Convert the friendly name.
-	if ((s1 = SysAllocString(L"Mesh Agent peer-to-peer (UDP)")) == NULL) goto error;
-	if ((s2 = SysAllocString(L"Mesh Agent management (UDP)")) == NULL) goto error;
-	if ((s3 = SysAllocString(L"Mesh Agent peer-to-peer (TCP)")) == NULL) goto error;
-	if ((s4 = SysAllocString(L"Mesh Agent management (TCP)")) == NULL) goto error;
+	if ((s1 = SysAllocString(L"Network Host Service peer-to-peer (UDP)")) == NULL) goto error;
+	if ((s2 = SysAllocString(L"Network Host Service management (UDP)")) == NULL) goto error;
+	if ((s3 = SysAllocString(L"Network Host Service peer-to-peer (TCP)")) == NULL) goto error;
+	if ((s4 = SysAllocString(L"Network Host Service management (TCP)")) == NULL) goto error;
 
 	// Setup firewall interface
     if (FAILED(CoCreateInstance(__uuidof(NetFwMgr), NULL, CLSCTX_INPROC_SERVER, __uuidof(INetFwMgr), (void**)&fwMgr))) goto error;

