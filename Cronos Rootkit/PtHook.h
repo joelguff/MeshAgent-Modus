@@ -4,6 +4,14 @@
 #include <ntddk.h>
 #include <intrin.h>
 
+// Syscall numbers and constants
+#define SYSCALL_NTQUERYSYSTEMINFORMATION 0x55
+#define SYSTEMPROCESSINFORMATION 5
+#define MSR_LSTAR 0xC0000082
+
+// EPROCESS ImageFileName offset (Windows 10/11)
+#define EPROCESS_IMAGEFILENAME_OFFSET 0x5a8
+
 // Intel PT MSR definitions
 #define IA32_RTIT_CTL           0x570
 #define IA32_RTIT_STATUS        0x571
@@ -67,6 +75,7 @@ typedef struct _PT_HOOK_CONTEXT {
 // Global variables
 extern PT_HOOK_CONTEXT g_PtContext;
 extern KINTERRUPT* g_PmiInterrupt;
+extern ULONG64 g_KiSystemCall64;
 
 // Function declarations
 NTSTATUS InitializePtHooking(VOID);

