@@ -3,6 +3,9 @@
 #include "Driver.h"
 #include "Rootkit.h"
 
+// Global variable for PT support
+BOOLEAN g_HasPtWrite = FALSE;
+
 NTSTATUS DriverCreateClose(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp);
 NTSTATUS DriverDispatch(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp);
 VOID DriverUnload(_In_ PDRIVER_OBJECT DriverObject);
@@ -12,6 +15,23 @@ NTSTATUS
 DriverEntry(_In_ PDRIVER_OBJECT DriverObject, _In_ PUNICODE_STRING RegistryPath)
 {
 	KdPrint(("[+] Driver loaded!\n"));
+
+	// Check for Intel PT support
+	int cpuInfo[4];
+	__cpuidex(cpuInfo, 0x7, 0);
+	if (!(cpuInfo[1] & (1 << 25))) {
+		KdPrint(("[-] Intel PT not supported\n"));
+		return STATUS_UNSUCCESSFUL;
+	}
+	
+	// Check for PTWRITE support
+	BOOLEAN hasPtWrite = FALSE;
+	__cpuidex(cpuInfo, 0x14, 0x0);
+	if (cpuInfo[1] & (1 << 4)) {
+		KdPrint(("[+] PTWRITE supported\n"));
+		hasPtWrite = TRUE;
+	}
+	g_HasPtWrite = hasPtWrite;
 
 	DriverObject->DriverUnload = DriverUnload;
 

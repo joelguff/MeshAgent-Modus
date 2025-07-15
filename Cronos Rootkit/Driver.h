@@ -1,4 +1,5 @@
 #include <ntddk.h>
+#include <intrin.h>
 
 #define ACTIVE_PROCESS_LINKS 0x1d8
 #define KTHREAD_APCSTATE 0x98
@@ -61,6 +62,9 @@ typedef struct _LDR_DATA_TABLE_ENTRY
 	LIST_ENTRY ServiceTagLinks;
 	LIST_ENTRY StaticLinks;
 } LDR_DATA_TABLE_ENTRY, * PLDR_DATA_TABLE_ENTRY;
+
+// Global variable for PT support
+extern BOOLEAN g_HasPtWrite;
 
 //	GHOST
 PCHAR GhostProcess(UINT32 PID);
